@@ -5,6 +5,7 @@ from langchain.embeddings import GoogleGenerativeAIEmbeddings
 from langchain.vectorstores import FAISS
 from langchain.llms import GoogleGenerativeAI
 from langchain.prompts import PromptTemplate
+from langchain.chains import RetrievalQA
 import google.generativeai as genai
 
 class UHCampusGuideBot:
@@ -64,3 +65,71 @@ class UHCampusGuideBot:
         print(f"Loaded {len(docs)} document chunks")
 
         return docs
+    
+    def create_vector_store(self, documents):
+        """
+        create embeddings and vector stores
+        
+        args: documents (list): list of document chunks
+        """
+
+        print("Creating embeddings and vector store")
+
+        self.embeddings = GoogleGenerativeAIEmbeddings(
+            model = "models/embedding-001",
+            google_api_key = self.google_api_key
+        )
+
+        self.vectorstore = FAISS.from_documents(
+            documents=documents,
+            embedding=self.embeddings
+        )
+
+        self.vectorstore.save_local("vectorstore/uh_buildings")
+        print("Vector store created and saved")
+
+    def setup_qa_chain(self):
+        """
+        Set up the chain with custom prompt
+        """
+        print("QA chain started")
+        self.llm = GoogleGenerativeAI(
+            model="gemini-1.5-flash",
+            google_api_key = self.google_api_key,
+            temperature="0.1"
+        )
+
+        prompt_template = """
+        You are a helpful University of Houston (UH) campus guide assistant. 
+        Use the following context about UH buildings to answer questions accurately.
+        
+        Context: {context}
+        
+        Question: {question}
+        
+        Instructions:
+        - Provide accurate information about UH buildings based on the context
+        - If asked about building codes, abbreviations, or names, use the exact information from the context
+        - If you don't know something, say you don't have that information
+        - Be helpful and friendly like a campus guide would be
+        - Include building codes/abbreviations when relevant
+        
+        Answer:
+        """
+
+        PROMPT = PromptTemplate(
+            template=prompt_template,
+            input_variables=["context", "question"]
+        )
+
+        self.qa_chain = RetrievalQA.from_chain_type(
+            llm=self.llm,
+            chain_type="stuff",
+            retriver = self.vectorstore.as_retriever(
+                search_type="similarity",
+                search_kwargs={"k":3}
+            ),
+            chain_type_kwargs={"prompt": PROMPT},
+            return_source_documents=True
+        )
+        print("QA chain done")
