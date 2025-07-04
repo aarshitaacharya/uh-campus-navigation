@@ -1,9 +1,9 @@
 import os
 from langchain.document_loaders import PyMuPDFLoader
 from langchain.text_splitter import RecursiveCharacterTextSplitter
-from langchain.embeddings import GoogleGenerativeAIEmbeddings
+from langchain_google_genai import GoogleGenerativeAIEmbeddings
 from langchain.vectorstores import FAISS
-from langchain.llms import GoogleGenerativeAI
+from langchain_google_genai import GoogleGenerativeAI
 from langchain.prompts import PromptTemplate
 from langchain.chains import RetrievalQA
 import google.generativeai as genai
@@ -125,7 +125,7 @@ class UHCampusGuideBot:
         self.qa_chain = RetrievalQA.from_chain_type(
             llm=self.llm,
             chain_type="stuff",
-            retriver = self.vectorstore.as_retriever(
+            retriever = self.vectorstore.as_retriever(
                 search_type="similarity",
                 search_kwargs={"k":3}
             ),
@@ -133,3 +133,103 @@ class UHCampusGuideBot:
             return_source_documents=True
         )
         print("QA chain done")
+
+    def ask_question(self, question):
+        """
+        ask a question to the bot
+
+        args: question(str): question about uh buildings
+        returns: dict: answer and source information
+        """
+
+        if not self.qa_chain:
+            return {
+                "error": "Bot did not initialize properly"
+            }
+        
+        try:
+            result = self.qa_chain({"query": question})
+
+            return {
+                "answer": result["result"],
+                "source_documents": result["source_documents"]
+            }
+        
+        except Exception as e:
+            return {
+                "error": f"Error processing question: {str(e)}"
+            }
+        
+    def load_existing_vectorstore(self):
+        """
+        load previously saved vector store
+        """
+        try:
+            self.embeddings = GoogleGenerativeAIEmbeddings(
+                model = "models/embedding-001",
+                google_api_key=self.google_api_key
+            )
+
+            self.vectorstore = FAISS.load_local(
+                "vectorstore/uh_buildings",
+                self.embeddings
+            )
+
+            print("Loaded existing vector store")
+            return True
+        
+        except:
+            print("No existing vector store found")
+            return False
+        
+
+def main():
+    """
+    main function to run the bot
+    """
+
+    print("UH Campus Guide Bot")
+    print("=" * 40)
+
+    api_key = os.getenv("GOOGLE_API_KEY")
+    if not api_key:
+        api_key = input("Enter your Google API key here: ")
+    
+    try:
+        bot = UHCampusGuideBot(
+            pdf_path="data/buildings.pdf",
+            google_api_key=api_key
+        )
+
+        print("Bot is ready, Ask me about UH buildings")
+        print("Type 'quit' to exit \n")
+
+        while True:
+            question = input("You: ").strip()
+
+            if question.lower() in ['quit', 'exit', 'bye']:
+                print("Goodbye")
+                break
+
+            if not question:
+                continue
+
+            print("Thinking..")
+            result = bot.ask_question(question)
+
+            if "error" in result:
+                print(f"Bot: Sorry, {result['error']}")
+            else:
+                print(f"Bot: {result['answer']}")
+
+                if len(result['source_documents']) > 0:
+                    print(f"\n Source: {len(result['source_documents'])} document(s) referenced")
+
+            print("-"*40)
+        
+    except Exception as e:
+        print(f"Error initializing bot: {e}")
+        print("Check for buildings file location")
+
+if __name__ == "__main__":
+    main()
